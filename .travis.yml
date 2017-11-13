@@ -11,30 +11,30 @@ install: echo 'skip'
 cache: pip
 jobs:
   include:
-    - stage: build
-      script: ./scripts/ci/build.sh
-      python: 3.6
-    - stage: verify
-      env: PURPOSE='Automation'
-      script: ./scripts/ci/test_automation.sh
-      python: 3.6
-    - stage: verify
-      env: PURPOSE='Automation'
-      script: ./scripts/ci/test_automation.sh
-      python: 2.7
-    - stage: verify
-      script: ./scripts/ci/test_static.sh
-      env: PURPOSE='Static Check'
-      python: 3.6
-    - stage: verify
-      script: ./scripts/ci/test_integration.sh
-      env: PURPOSE='Integration'
-      python: 3.6
-    - stage: verify
-      script: ./scripts/ci/test_integration.sh
-      env: PURPOSE='Integration'
-      python: 2.7
+      #    - stage: build
+      #script: ./scripts/ci/build.sh
+      #python: 3.6
+      #- stage: verify
+      #env: PURPOSE='Automation'
+      #script: ./scripts/ci/test_automation.sh
+      #python: 3.6
+      #- stage: verify
+      #env: PURPOSE='Automation'
+      #script: ./scripts/ci/test_automation.sh
+      #python: 2.7
+      #    - stage: verify
+      #script: ./scripts/ci/test_static.sh
+      #env: PURPOSE='Static Check'
+      #python: 3.6
+      #- stage: verify
+      #script: ./scripts/ci/test_integration.sh
+      #env: PURPOSE='Integration'
+      #python: 3.6
+      #- stage: verify
+      #script: ./scripts/ci/test_integration.sh
+      #env: PURPOSE='Integration'
+      #python: 2.7
     - stage: publish
       script: ./scripts/ci/publish.sh
       python: 3.6
-      if: branch = dev and type = push
+      if: branch in (dev, knackperf) and type = push

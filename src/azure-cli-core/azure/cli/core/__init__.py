@@ -8,7 +8,6 @@ __version__ = "2.0.21"
 
 import os
 import sys
-import timeit
 
 from knack.arguments import ArgumentsContext
 from knack.cli import CLI
@@ -78,64 +77,108 @@ class AzCli(CLI):
 
 
 class MainCommandsLoader(CLICommandsLoader):
-
     def __init__(self, cli_ctx=None):
         super(MainCommandsLoader, self).__init__(cli_ctx)
         self.cmd_to_loader_map = {}
+        self.cmd_to_mod_map = {}
         self.loaders = []
+        self.accumulate_time = 0
 
     def _update_command_definitions(self):
         pass
 
-    def load_command_table(self, args):
-        from importlib import import_module
-        import pkgutil
-        import traceback
-        from azure.cli.core.commands import (
-            _load_module_command_loader, _load_extension_command_loader, BLACKLISTED_MODS, ExtensionCommandSource)
-        from azure.cli.core.extension import (
-            get_extension_names, get_extension_path, get_extension_modname)
+    def _load_commands_from_command_module(self, module_args, module_name):
+        from azure.cli.core.util import PerformanceMonitor
+        from azure.cli.core.commands import load_command_loader
 
-        cmd_to_mod_map = {}
-
-        def _update_command_table_from_modules(args):
-            '''Loads command table(s)
-            When `module_name` is specified, only commands from that module will be loaded.
-            If the module is not found, all commands are loaded.
-            '''
-            installed_command_modules = []
+        with PerformanceMonitor(self, "Loading module {}".format(module_name)):
             try:
-                mods_ns_pkg = import_module('azure.cli.command_modules')
-                installed_command_modules = [modname for _, modname, _ in
-                                             pkgutil.iter_modules(mods_ns_pkg.__path__)
-                                             if modname not in BLACKLISTED_MODS]
-            except ImportError:
-                pass
-            logger.debug('Installed command modules %s', installed_command_modules)
-            cumulative_elapsed_time = 0
-            for mod in [m for m in installed_command_modules if m not in BLACKLISTED_MODS]:
-                try:
-                    start_time = timeit.default_timer()
-                    module_command_table = _load_module_command_loader(self, args, mod)
-                    self.command_table.update(module_command_table)
-                    cmd_to_mod_map.update({cmd: mod for cmd in list(module_command_table.keys())})
-                    elapsed_time = timeit.default_timer() - start_time
-                    logger.debug("Loaded module '%s' in %.3f seconds.", mod, elapsed_time)
-                    cumulative_elapsed_time += elapsed_time
-                except Exception as ex:  # pylint: disable=broad-except
-                    # Changing this error message requires updating CI script that checks for failed
-                    # module loading.
-                    import azure.cli.core.telemetry as telemetry
-                    logger.error("Error loading command module '%s'", mod)
-                    telemetry.set_exception(exception=ex, fault_type='module-load-error-' + mod,
-                                            summary='Error loading module: {}'.format(mod))
-                    logger.debug(traceback.format_exc())
-            logger.debug("Loaded all modules in %.3f seconds. "
-                         "(note: there's always an overhead with the first module loaded)",
-                         cumulative_elapsed_time)
+                result = load_command_loader(self, module_args, module_name, 'azure.cli.command_modules.')
+                self.command_table.update(result)
+                self.cmd_to_mod_map.update({cmd: module_name for cmd in result})
+                return result
+            except ModuleNotFoundError:
+                logger.debug('Failed to load command module %s.', module_name)
 
-        def _update_command_table_from_extensions():
+    def _load_commands_from_extension(self, module_args, extension_name):
+        from azure.cli.core.util import PerformanceMonitor
+        from azure.cli.core.commands import load_command_loader, ExtensionCommandSource
 
+        with PerformanceMonitor(self, "Loading extension {}".format(extension_name)):
+            try:
+                result = load_command_loader(self, module_args, extension_name, '')
+
+                for cmd_name, cmd in result.items():
+                    cmd.command_source = ExtensionCommandSource(
+                        extension_name=extension_name,
+                        overrides_command=cmd_name in self.cmd_to_mod_map)
+                self.command_table.update(result)
+
+                return result
+            except ModuleNotFoundError:
+                logger.debug('Failed to load extension %s.', extension_name)
+
+    def _update_command_table_from_modules(self, args):
+        """
+        Loads command definitions from the command modules (aside from extensions). The command definitions loaded
+        in this function will not necessarily all be added to the argparse as subparsers.
+
+        The module_args is expected to be a list of string presents the sub commands in the order as user input. The
+        first string in the module_args is called root command here. The root command must be same as the name of
+        the command module which carries this command.
+
+        The the module "azure.cli.command_modules.{root_command} is failed to be located, or there isn't any command
+        found in this module this method will fallback to load all modules under the "azure.cli.command_modules"
+        namespace, thus hurt the performance.
+
+        If the module_args is empty, meaning the user simply type "az", all the modules will be loaded as well.
+        """
+        import traceback
+        from pkgutil import iter_modules
+        from importlib import import_module
+        from azure.cli.core.commands import BLACKLISTED_MODS
+
+        root_command = args[0] if args else None
+        if root_command and root_command not in BLACKLISTED_MODS:
+            logger.debug('Try loading command modules %s', root_command)
+            self._load_commands_from_command_module(args, root_command)
+            if self.command_table:
+                # some command definitions have been load
+                return
+
+        # fallback when args is empty or the root command is not mapped to any modules
+        # Note: this part can be further optimized by delaying after the extension modules are lod.
+        try:
+            mods_ns_pkg = import_module('azure.cli.command_modules')
+            installed_command_modules = [modname for _, modname, _ in iter_modules(mods_ns_pkg.__path__)
+                                         if modname not in BLACKLISTED_MODS]
+        except ImportError:
+            installed_command_modules = []
+
+        logger.debug('Find command modules %s', installed_command_modules)
+        for mod in installed_command_modules:
+            try:
+                self._load_commands_from_command_module(args, mod)
+            except Exception as ex:  # pylint: disable=broad-except
+                # Changing this error message requires updating CI script that checks for failed
+                # module loading.
+                import azure.cli.core.telemetry as telemetry
+                logger.error("Error loading command module '%s'", mod)
+                telemetry.set_exception(exception=ex, fault_type='module-load-error-' + mod,
+                                        summary='Error loading module: {}'.format(mod))
+                logger.debug(traceback.format_exc())
+        logger.debug('Found and load %d command definitions', len(self.command_table))
+
+    def _update_command_table_from_extensions(self, args):
+        """
+        We always load extensions even if the appropriate module has been loaded as an extension could override the
+        commands already loaded.
+        """
+        import traceback
+        from azure.cli.core.extension import get_extension_names, get_extension_path, get_extension_modname
+        from azure.cli.core.commands import ExtensionCommandSource
+
+        try:
             extensions = get_extension_names()
             if extensions:
                 logger.debug("Found %s extensions: %s", len(extensions), extensions)
@@ -147,29 +190,20 @@ class MainCommandsLoader(CLICommandsLoader):
                         # Add to the map. This needs to happen before we load commands as registering a command
                         # from an extension requires this map to be up-to-date.
                         # self._mod_to_ext_map[ext_mod] = ext_name
-                        start_time = timeit.default_timer()
-                        extension_command_table = _load_extension_command_loader(self, args, ext_mod)
-
-                        for cmd_name, cmd in extension_command_table.items():
-                            cmd.command_source = ExtensionCommandSource(
-                                extension_name=ext_mod,
-                                overrides_command=cmd_name in cmd_to_mod_map)
-
-                        self.command_table.update(extension_command_table)
-                        elapsed_time = timeit.default_timer() - start_time
-                        logger.debug("Loaded extension '%s' in %.3f seconds.", ext_name, elapsed_time)
+                        self._load_commands_from_extension(args, ext_mod)
                     except Exception:  # pylint: disable=broad-except
                         logger.warning("Unable to load extension '%s'. Use --debug for more information.", ext_name)
                         logger.debug(traceback.format_exc())
-
-        _update_command_table_from_modules(args)
-        try:
-            # We always load extensions even if the appropriate module has been loaded
-            # as an extension could override the commands already loaded.
-            _update_command_table_from_extensions()
         except Exception:  # pylint: disable=broad-except
             logger.warning("Unable to load extensions. Use --debug for more information.")
             logger.debug(traceback.format_exc())
+
+    def load_command_table(self, args):
+        self._update_command_table_from_modules(args)
+        self._update_command_table_from_extensions(args)
+
+        get_logger('PERF').debug("Loaded all modules and extensions in %.3f seconds. (note: there's always an overhead "
+                                 "with the first module loaded)", self.accumulate_time)
 
         return self.command_table
 

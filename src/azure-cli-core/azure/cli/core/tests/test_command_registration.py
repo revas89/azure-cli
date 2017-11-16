@@ -195,7 +195,7 @@ class TestCommandRegistration(unittest.TestCase):
     @mock.patch('azure.cli.core.extension.get_extension_names', _mock_get_extension_names)
     def test_register_command_from_extension(self):
 
-        from azure.cli.core.commands import _load_command_loader
+        from azure.cli.core.commands import load_command_loader
         cli = TestCli()
         main_loader = MainCommandsLoader(cli)
         cli.loader = main_loader

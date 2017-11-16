@@ -47,7 +47,6 @@ def _create_key_vault_command(module_name, name, operation, transform_result, ta
         from azure.keyvault.models import KeyVaultErrorException
 
         try:
-
             def get_token(server, resource, scope):  # pylint: disable=unused-argument
                 import adal
                 try:

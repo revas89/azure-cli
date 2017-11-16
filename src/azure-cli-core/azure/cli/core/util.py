@@ -19,6 +19,27 @@ CLI_PACKAGE_NAME = 'azure-cli'
 COMPONENT_PREFIX = 'azure-cli-'
 
 
+class PerformanceMonitor(object):
+    def __init__(self, parent, subject):
+        self.start_time = None
+        self.parent = parent
+        self.subject = subject
+        self.logger = get_logger('PERF')
+
+    def __enter__(self):
+        import timeit
+        self.start_time = timeit.default_timer()
+
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        import timeit
+
+        duration = timeit.default_timer() - self.start_time
+        self.parent.accumulate_time += duration
+        self.logger.debug("PERF: %.3f - %s", duration, self.subject)
+
+
 def handle_exception(ex):
     # For error code, follow guidelines at https://docs.python.org/2/library/sys.html#sys.exit,
     from msrestazure.azure_exceptions import CloudError

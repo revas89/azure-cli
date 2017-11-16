@@ -466,7 +466,7 @@ class DeploymentOutputLongRunningOperation(LongRunningOperation):
         return result
 
 
-def _load_command_loader(loader, args, name, prefix):
+def load_command_loader(loader, args, name, prefix):
     module = import_module(prefix + name)
     loader_cls = getattr(module, 'COMMAND_LOADER_CLS', None)
     command_table = {}
@@ -485,14 +485,6 @@ def _load_command_loader(loader, args, name, prefix):
     else:
         logger.debug("Command module '%s' is missing `COMMAND_LOADER_CLS` entry.", name)
     return command_table
-
-
-def _load_extension_command_loader(loader, args, ext):
-    return _load_command_loader(loader, args, ext, '')
-
-
-def _load_module_command_loader(loader, args, mod):
-    return _load_command_loader(loader, args, mod, 'azure.cli.command_modules.')
 
 
 class ExtensionCommandSource(object):

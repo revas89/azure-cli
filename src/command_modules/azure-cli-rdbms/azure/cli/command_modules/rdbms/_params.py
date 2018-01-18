@@ -32,7 +32,7 @@ def load_arguments(self, _):
 
             c.expand('parameters', engine.models.ServerForCreate)
 
-            c.expand('storage_profile', engine.models.StorageProfile)
+            c.expand('storage_profile', engine.models.StorageProfile, group_name="Storage Profile")
 
             c.argument('location', arg_type=get_location_type(self.cli_ctx), required=False)
 

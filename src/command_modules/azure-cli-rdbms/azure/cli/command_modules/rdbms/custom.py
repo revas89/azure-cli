@@ -44,6 +44,10 @@ def _server_update_custom_func(instance,
                                capacity=None,
                                administrator_login_password=None,
                                ssl_enforcement=None,
+                               backup_retention_days=None,
+                               family=None,
+                               geo_redundant_backup=None,
+                               storage_size=None,
                                tags=None):
     from importlib import import_module
     server_module_path = instance.__module__
@@ -55,11 +59,35 @@ def _server_update_custom_func(instance,
     else:
         instance.sku = None
 
+    if backup_retention_days is not None:
+        instance.backup_retention_days = backup_retention_days
+    else:
+        instance.backup_retention_days = None
+
+    if family is not None:
+        instance.family = family
+    else:
+        instance.family = None
+
+    if geo_redundant_backup is not None:
+        instance.geo_redundant_backup = geo_redundant_backup
+    else:
+        instance.geo_redundant_backup = None
+
+    if storage_size is not None:
+        instance.storage_size = storage_size
+    else:
+        instance.storage_size = None
+
     params = ServerUpdateParameters(sku=instance.sku,
                                     storage_mb=None,
                                     administrator_login_password=administrator_login_password,
                                     version=None,
                                     ssl_enforcement=ssl_enforcement,
+                                    backup_retention_days=None,
+                                    family=family,
+                                    geo_redundant_backup=geo_redundant_backup,
+                                    storage_size=storage_size,
                                     tags=tags)
 
     return params
